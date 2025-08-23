@@ -1,14 +1,15 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import './Header.css';
 
 function Header() {
   return (
     <header>
         <nav>
-            <a href="/resume">이력서</a>
+           <Link to="/resume/upload">이력서</Link>
             <a href="/interview">면접</a>
-            <a href="/signup">회원가입</a>
-            <a href="/login">로그인</a>
+            <Link to="/auth/signup">회원가입</Link>
+           <Link to="/auth/login">로그인</Link>
         </nav>
 
     </header>
