@@ -11,14 +11,16 @@ import Signup from "./component/Auth/signup";
 import Login from "./component/Auth/login";
 import ResumeResult from "./component/Resume/result";
 import ResumeUpload from "./component/Resume/upload";
+import ResumeAnalyze from "./component/Resume/analyze.jsx";
+import AuthCallback from "./component/Auth/logincallback.jsx";
 
 function App() {
   // (선택) 인증 화면에서 헤더/푸터 숨기기
-  const isAuth = window.location.pathname.startsWith("/auth");
+
 
   return (
     <Router>
-      {!isAuth && <Header />}
+      <Header />
 
       <div style={{ minHeight: "500px", padding: "20px" }}>
         <Routes>
@@ -28,17 +30,19 @@ function App() {
           {/* Auth */}
           <Route path="/auth/signup" element={<Signup />} />
           <Route path="/auth/login" element={<Login />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
 
           {/* Resume */}
           <Route path="/resume/upload" element={<ResumeUpload />} />
           <Route path="/resume/result" element={<ResumeResult />} />
+          <Route path="/resume/analyze" element={<ResumeAnalyze />} />
 
           {/* 404 → 로그인으로 */}
           <Route path="*" element={<Navigate to="/auth/login" replace />} />
         </Routes>
       </div>
 
-      {!isAuth && <Footer />}
+      <Footer />
     </Router>
   );
 }

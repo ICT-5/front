@@ -1,0 +1,21 @@
+/* 업로드 화면 전용 */
+.upload__group + .upload__group{ margin-top:12px; }
+
+.upload__help{
+  margin-top:6px;
+  color:var(--muted);
+  font-size:12px;
+}
+
+/* 파일 드래그 영역 쓰고 싶으면 */
+.dropzone{
+  border:2px dashed var(--line);
+  border-radius:12px;
+  padding:18px;
+  background:#fbfcff;
+  text-align:center;
+}
+.dropzone:hover{
+  border-color:var(--primary);
+  background:#f7faff;
+}

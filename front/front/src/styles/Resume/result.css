@@ -1,0 +1,62 @@
+/* 점수/진행바 */
+.score-wrap{
+  display:grid;
+  gap:8px;
+  margin-bottom:10px;
+}
+.score-number{
+  font-size:36px;
+  font-weight:800;
+}
+
+/* 2단 컬럼 */
+.two-col{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:16px;
+}
+@media (max-width:768px){
+  .two-col{ grid-template-columns:1fr; }
+}
+
+/* 태그 */
+.tags{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.tag{
+  padding:6px 10px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:#fff;
+  font-size:13px;
+}
+
+/* 소형 테이블(룰/가중치/메모) */
+.mini-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:13px;
+  margin-top:10px;
+}
+.mini-table th, .mini-table td{
+  border:1px solid var(--line);
+  padding:8px;
+  text-align:left;
+}
+.mini-table th{ background:#f7f8fa; }
+
+/* 작은 통계 칩 */
+.stat-chips{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.chip{
+  background:#f2f4f8;
+  border:1px solid #e5eaf1;
+  border-radius:999px;
+  padding:6px 10px;
+  font-size:12px;
+}
