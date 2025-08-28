@@ -13,12 +13,13 @@ const HomePage = lazy(() => import("./component/Main/HomePage.jsx"));
 const Signup = lazy(() => import("./component/Auth/signup.jsx"));
 const Login = lazy(() => import("./component/Auth/login.jsx"));
 const AuthCallback = lazy(() => import("./component/Auth/logincallback.jsx"));
-const ProfileForm = lazy(() => import("./component/Auth/ProfileForm.jsx"));
+
 
 // Interview
 const InterviewFeedback = lazy(() => import("./component/Interview/InterviewFeedback.jsx"));
 const InterviewSetting = lazy(() => import("./component/Interview/InterviewSetting.jsx"));
 const InterviewAnalyze = lazy(() => import("./component/Interview/Interviewanalyze.jsx"));
+const InterviewTest = lazy(()=> import("./component/Interview/InterviewFeedbackTest.jsx"))
 
 // Resume
 const ResumeUpload = lazy(() => import("./component/Resume/upload.jsx"));
@@ -43,12 +44,13 @@ function App() {
             <Route path="/auth/signup" element={<Signup />} />
             <Route path="/auth/login" element={<Login />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
-            <Route path="/auth/profile" element={<ProfileForm />} />
+        
 
             {/* Interview */}
             <Route path="/interview/feedback" element={<InterviewFeedback />} />
             <Route path="/interview/analyze" element={<InterviewAnalyze />} />
             <Route path="/interview/setting" element={<InterviewSetting />} />
+            <Route path="/interview/feedbacktest" element={<InterviewTest/>} />
 
             {/* Resume */}
             <Route path="/resume/upload" element={<ResumeUpload />} />
