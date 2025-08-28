@@ -1,33 +1,42 @@
-// src/component/Auth/login.jsx
-import React, { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { useAuth } from "../../context/AuthContext";   // ← 여기!
-import "../../styles/Auth/login.css";
+import { useState } from "react";
+import { useNavigate, Link, useLocation } from "react-router-dom";
+import axios from "axios";
+import { API_BASE, setAccessToken } from "../../lib/api";
+
 
 export default function Login() {
-  const [params] = useSearchParams();
-  const next = params.get("next") || "/resume/upload";
-
-  const { login } = useAuth();
   const navigate = useNavigate();
+  const loc = useLocation();
+  const next = new URLSearchParams(loc.search).get("next") || "/dashboard";
+
   const [form, setForm] = useState({ email: "", password: "" });
-  const [err, setErr] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const onChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    setErr(""); setLoading(true);
+    setError("");
     try {
-      await login(form);
-      navigate(next, { replace: true });
-    } catch (e2) {
-      let message = "로그인에 실패했습니다. 이메일/비밀번호를 확인해주세요.";
-      if (e2.response?.status === 401) message = "이메일 또는 비밀번호가 올바르지 않습니다.";
-      else if (e2.response?.data?.message) message = e2.response.data.message;
-      setErr(message);
-    } finally { setLoading(false); }
+      const res = await axios.post(
+        `${API_BASE}/api/users/login`,
+        { email: form.email, password: form.password },
+        {
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          validateStatus: () => true,
+        }
+      );
+
+      const token = res.data?.accessToken;
+      if ((res.status === 200 || res.status === 201) && token) {
+        setAccessToken(token);
+        navigate(next, { replace: true });
+        return;
+      }
+      throw new Error(res.data?.message || `로그인 실패 (HTTP ${res.status})`);
+    } catch (e) {
+      setError(e.message || "로그인에 실패했어요.");
+    }
   };
 
   return (
@@ -35,14 +44,31 @@ export default function Login() {
       <h1 className="auth-title">로그인</h1>
       <form className="auth-form" onSubmit={onSubmit}>
         <label>이메일</label>
-        <input name="email" type="email" value={form.email} onChange={onChange} required />
+        <input
+          name="email"
+          type="email"
+          value={form.email}
+          onChange={onChange}
+          placeholder="you@example.com"
+          required
+        />
         <label>비밀번호</label>
-        <input name="password" type="password" value={form.password} onChange={onChange} required />
-        {err && <p className="help-error">{err}</p>}
-        <button type="submit" className="btn-primary btn--block" disabled={loading}>
-          {loading ? "로그인 중..." : "로그인"}
-        </button>
+        <input
+          name="password"
+          type="password"
+          value={form.password}
+          onChange={onChange}
+          placeholder="••••••"
+          required
+        />
+        {error && <p className="help-error">{error}</p>}
+        <button type="submit" className="btn-primary btn--block">로그인</button>
       </form>
+
+      <div className="auth-meta">
+        <span>아직 계정이 없나요?</span>
+        <Link to="/auth/signup" className="link">회원가입</Link>
+      </div>
     </div>
   );
 }
