@@ -1,27 +1,34 @@
-// src/component/Resume/Result.jsx
+// src/components/Resume/Result.jsx
 import { useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import "../../styles/Resume/resume.base.css";
+import "../../styles/Resume/result.css";
+
+const Box = ({ title, children }) => (
+  <section className="card">
+    {title && <h3 className="card-title">{title}</h3>}
+    {children}
+  </section>
+);
+
+const Field = ({ label, children }) => (
+  <div style={{ marginBottom: 10 }}>
+    <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{label}</div>
+    <div className="field">{children}</div>
+  </div>
+);
 
 export default function Result() {
   const navigate = useNavigate();
-  const { state } = useLocation();       // upload.jsx에서 넘겨준 state (res.data)
-  const { jobId } = useParams();         // /resume/result/:jobId 라우팅을 쓴다면
+  const { state } = useLocation(); // Analyze에서 넘긴 서버 응답 전체
+  const { jobId } = useParams();
 
-  // ⛳ 리다이렉트는 렌더 중이 아니라 useEffect에서만!
   useEffect(() => {
-    // 1) state도 없고, jobId 파라미터도 없으면 업로드 페이지로 돌려보냄
-    if (!state && !jobId) {
-      navigate("/resume/upload", { replace: true });
-    }
+    if (!state && !jobId) navigate("/resume/upload", { replace: true });
   }, [state, jobId, navigate]);
 
-  // 2) 아직 리다이렉트 여부 판단 중이면 빈 UI 유지(깜빡임 방지)
-  if (!state && !jobId) {
-    return null;
-  }
+  if (!state && !jobId) return null;
 
-  // ───────── 업로드에서 state로 넘어온 경우 표시 ─────────
-  // FlowController 응답 형태: { ok, userId, collection, topK, resumePreview, postingPreview, analysis, retrieved: [...] }
   if (state) {
     const {
       ok,
@@ -36,52 +43,52 @@ export default function Result() {
 
     return (
       <div className="resume-wrap">
-        <h1 className="resume-title">분석 결과</h1>
+        <h1 className="resume-title">이력서 분석 결과</h1>
 
-        <section className="card">
-          <h3 className="card-title">요약</h3>
-          <ul>
-            <li>ok: {String(ok)}</li>
-            <li>userId: {userId}</li>
-            <li>collection: {collection}</li>
-            <li>topK: {topK}</li>
-          </ul>
-        </section>
+        <div className="two-col">
+          <Box title="이력서 미리보기">
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{resumePreview || "(미리보기 없음)"}</div>
+          </Box>
+          <Box title="채용공고 미리보기">
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{postingPreview || "(미리보기 없음)"}</div>
+          </Box>
+        </div>
 
-        <section className="card">
-          <h3 className="card-title">이력서 미리보기</h3>
-          <pre className="code">{resumePreview}</pre>
-        </section>
+        <Box title="분석 (마크다운 가능)">
+          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{analysis || "(분석 결과 없음)"}</div>
+        </Box>
 
-        <section className="card">
-          <h3 className="card-title">채용공고 미리보기</h3>
-          <pre className="code">{postingPreview}</pre>
-        </section>
+        {/* <div className="two-col">
+          <Field label="ok"><code>{ok !== undefined ? String(ok) : "-"}</code></Field>
+          <Field label="userId"><code>{userId ?? "-"}</code></Field>
+          <Field label="collection"><code>{collection ?? "-"}</code></Field>
+          <Field label="topK"><code>{topK ?? "-"}</code></Field>
+        </div> */}
 
-        <section className="card">
-          <h3 className="card-title">분석(LLM)</h3>
-          <pre className="code">{analysis}</pre>
-        </section>
+        <Box title="retrieved (RAG 검색 결과)">
+          {Array.isArray(retrieved) && retrieved.length > 0 ? (
+            <details open style={{ background: "#f8fafc", padding: 12, borderRadius: 10, border: "1px solid #eef2f7" }}>
+              <summary style={{ cursor: "pointer", marginBottom: 8 }}>
+                총 {retrieved.length}개 – JSON 보기
+              </summary>
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap", overflowX: "auto", fontSize: 13, lineHeight: 1.5 }}>
+                {JSON.stringify(retrieved, null, 2)}
+              </pre>
+            </details>
+          ) : (
+            <p className="hint">RAG 결과가 없습니다. (retrieved: [])</p>
+          )}
+        </Box>
 
-        <section className="card">
-          <h3 className="card-title">검색된 문서</h3>
-          <ul>
-            {retrieved.map((h, i) => (
-              <li key={i}>
-                <div>id: {h.id}</div>
-                <div>distance: {h.distance}</div>
-                <pre className="code">{h.textPreview}</pre>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <div style={{ marginTop: 24, display: "flex", gap: 8 }}>
+          <button className="btn-primary" onClick={() => navigate("/resume/upload")}>다시 업로드</button>
+          <button className="btn-secondary" onClick={() => navigate(-1)}>이전</button>
+        </div>
       </div>
     );
   }
 
-  // ───────── URL이 /resume/result/:jobId 인 케이스 ─────────
-  // 여기서 jobId로 서버에서 결과 조회 API를 호출해도 되고,
-  // 아직 API가 없으면 안내만 표시.
+  // /resume/result/:jobId 형태를 사용할 때(서버 조회 필요 시)
   return (
     <div className="resume-wrap">
       <h1 className="resume-title">분석 결과</h1>
