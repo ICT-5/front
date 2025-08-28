@@ -1,17 +1,9 @@
+// src/component/Interview/feedback.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { api } from "../../lib/api"; // ✅ 스프링 axios 인스턴스(Authorization 자동)
 
-const API_BASE = "http://localhost:8080";
 
-const getAuthHeaders = () => {
-  const token =
-    localStorage.getItem("accessToken") ||
-    localStorage.getItem("token") ||
-    localStorage.getItem("jwt");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
-// answer에 annotation 하이라이트 (선택)
 function highlightAnswer(answer = "", annotations = []) {
   if (!answer || !Array.isArray(annotations) || annotations.length === 0) {
     return <span>{answer}</span>;
@@ -46,139 +38,159 @@ export default function InterviewFeedback() {
   const { state } = useLocation();
   const navigate = useNavigate();
 
-  // 1) 입력 페이로드 확보: analyze에서 넘겨준 payload 우선
-  const inputPayload = useMemo(() => {
-    if (state?.payload?.qas?.length) return state.payload;
-
-    // 폴백: 가장 최근 세션의 sessionStorage Q/A 로드 (없으면 데모)
-    const keys = Object.keys(sessionStorage).filter((k) => k.startsWith("interview_qas:"));
-    const lastKey = keys.sort().at(-1);
-    let qas = [];
-    if (lastKey) {
-      try { qas = JSON.parse(sessionStorage.getItem(lastKey) || "[]"); } catch {}
-    }
-    if (qas.length) {
-      const sessionId = lastKey?.split(":")[1] || `sess_demo_${Date.now()}`;
-      return { sessionId, jdKeywords: ["REST API"], qas };
-    }
-
-    // 최종 데모
+  // 0) 세션/키워드 기본값 정리
+  const base = useMemo(() => {
     return {
-      sessionId: "sess_demo_001",
-      jdKeywords: ["Spring Boot", "Kafka", "REST API", "Docker"],
-      qas: [
-        { qid: "q1", answer: "Spring Boot에서 이미지 최적화로 LCP를 4.3s→2.6s로 개선했습니다." },
-        { qid: "q2", answer: "성능을 많이 개선했고 사용자 경험이 좋아졌습니다." },
-      ],
+      sessionId: state?.sessionId ?? state?.payload?.sessionId ?? null,
+      jdKeywords: state?.jdKeywords ?? state?.payload?.jdKeywords ?? [],
+      payload: state?.payload ?? null, // { sessionId, jdKeywords, qas? }
     };
   }, [state]);
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(null); // { apiVersion, sessionId, checklist, items }
+  const [downloading, setDownloading] = useState(false);
 
-  // 2) JSON 피드백 API 호출 (백엔드 준비 전이면 목업 생성)
+  // 1) Q/A 확보 → /api/feedback/process 호출
   useEffect(() => {
     let alive = true;
 
-    async function run() {
+    const run = async () => {
+      if (!base.sessionId) {
+        setLoading(false);
+        setErr("sessionId가 없습니다. 이전 단계에서 세션을 생성해 주세요.");
+        return;
+      }
+
       try {
-        setLoading(true); setErr("");
+        setLoading(true);
+        setErr("");
 
-        // 실제 백엔드 열리면 사용
-        const resp = await fetch(`${API_BASE}/api/feedback/analyze`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json", ...getAuthHeaders() },
-          body: JSON.stringify({
-            sessionId: inputPayload.sessionId,
-            jdKeywords: inputPayload.jdKeywords || [],
-            qas: (inputPayload.qas || []).map((q) => ({ qid: q.qid ?? q.id, answer: q.answer ?? "" })),
-          }),
-        });
+        // (A) 이미 Analyze에서 Q/A를 만들어 넘겨왔다면 그대로 사용
+        let qas = Array.isArray(base.payload?.qas) ? base.payload.qas : null;
 
-        if (resp.status === 401) {
-          setErr("인증이 필요합니다. 로그인 후 다시 시도해주세요.");
+        // (B) 없으면 DB에서 조회 (★ 방금 만든 API)
+        if (!qas) {
+          // ⚠️ sessionId는 BIGINT 숫자 문자열이어야 함
+        console.log("[FEEDBACK] GET /qas sessionId:", base.sessionId);
+
+const resQas = await api.get("/api/feedback/qas", {
+  params: { sessionId: String(base.sessionId) },
+  validateStatus: () => true,
+});
+
+console.log("[FEEDBACK] /qas status:", resQas.status, "data:", resQas.data);
+          if (resQas.status === 401) {
+            setErr("로그인이 필요합니다. 다시 로그인해주세요.");
+            setLoading(false);
+            return;
+          }
+          if (resQas.status !== 200) {
+            setErr(`Q/A 조회 실패 (HTTP ${resQas.status})`);
+            setLoading(false);
+            return;
+          }
+          // [{ qid: "123", answer: "..." }, ...]
+          qas = Array.isArray(resQas.data) ? resQas.data : [];
+        }
+
+        // 2) 피드백 분석 호출 (네가 준 스키마 그대로)
+        const res = await api.post(
+          "/api/feedback/process",
+          {
+            sessionId: base.sessionId,
+            jdKeywords: base.jdKeywords || [],
+            qas: qas.map((q) => ({
+              qid: q.qid ?? q.id,        // 안전 매핑
+              answer: q.answer ?? "",
+            })),
+          },
+          { validateStatus: () => true }
+          
+        );
+
+        console.log("[FEEDBACK] POST /process payload:", {
+  sessionId: base.sessionId,
+  jdKeywords: base.jdKeywords,
+  qas,
+});
+console.log("[FEEDBACK] /process response:", res.status, res.data);
+
+
+        
+
+        if (res.status === 401) {
+          setErr("인증이 필요합니다. 다시 로그인해주세요.");
+          setLoading(false);
+          return;
+        }
+        if (res.status !== 200) {
+          setErr(`분석 실패 (HTTP ${res.status})`);
           setLoading(false);
           return;
         }
 
-        if (!resp.ok) {
-          // 백엔드 준비 안 됐을 때는 목업으로 대체
-          console.warn("[Feedback] analyze failed:", resp.status);
-          throw new Error("BACKEND_OFF");
-        }
-
-        const data = await resp.json();
+        const data = res.data;
         if (!alive) return;
-        setResult(data);
+
+        const normalized = {
+          apiVersion: data.apiVersion ?? "1.0",
+          sessionId: data.sessionId ?? String(base.sessionId),
+          checklist: Array.isArray(data.checklist) ? data.checklist : [],
+          items: Array.isArray(data.items) ? data.items : [],
+        };
+        setResult(normalized);
       } catch (e) {
         if (!alive) return;
-        // 목업 결과
-        if (e.message === "BACKEND_OFF") {
-          const mock = {
-            sessionId: inputPayload.sessionId,
-            checklist: ["전후 수치 1개 포함", "STAR 3문장 유지", "JD 키워드 1개 명시"],
-            items: (inputPayload.qas || []).map((q, i) => ({
-              qid: q.qid || `q${i + 1}`,
-              question: i === 0 ? "자기소개를 간단히 해주세요." : undefined,
-              answer: q.answer,
-              annotations: i === 0 ? [{
-                span: { start: 0, end: Math.min(8, q.answer.length), text: q.answer.slice(0, 8) },
-                category: "no_metric",
-                comment: "전후 수치를 1개 이상 포함하세요.",
-                suggest: "예) 응답속도 120ms→78ms",
-              }] : [],
-              rewrite: i === 0
-                ? "핵심 행동과 결과를 STAR로 2~3문장으로 요약하고, 전후 수치를 포함해 주세요."
-                : q.answer,
-              jdInsert: ["REST API"],
-              tips: ["전후 수치 1개 이상 명시", "모호 표현을 구체 행동/방법으로 교체"],
-            })),
-          };
-          setResult(mock);
-        } else {
-          setErr(e?.message || "피드백 분석 중 오류가 발생했습니다.");
-        }
+        setErr(e?.message || "피드백 분석 중 오류가 발생했습니다.");
       } finally {
         if (alive) setLoading(false);
       }
-    }
+    };
 
-    if (inputPayload?.qas?.length) run();
-    else { setLoading(false); setErr("분석할 Q/A 데이터가 없습니다."); }
-
+    run();
     return () => { alive = false; };
-  }, [inputPayload]);
+  }, [base]);
 
-  // 3) PDF 다운로드 (실서버에서만 동작, 준비 전이면 안내)
-  const [downloading, setDownloading] = useState(false);
+  // 3) PDF 다운로드
   const downloadPdf = async () => {
     if (!result) return;
     try {
-      setDownloading(true); setErr("");
+      setDownloading(true);
+      setErr("");
 
-      const checklist = result?.checklist ?? [];
-      const items = (result?.items || []).map((it) => ({
-        qid: it.qid, question: it.question, answer: it.answer,
-        annotations: it.annotations, rewrite: it.rewrite, jdInsert: it.jdInsert,
-      }));
+      const body = {
+        sessionId: result.sessionId || base.sessionId,
+        checklist: result.checklist ?? [],
+        items: (result.items || []).map((it) => ({
+          qid: it.qid,
+          question: it.question,
+          answer: it.answer,
+          annotations: it.annotations,
+          rewrite: it.rewrite,
+          jdInsert: it.jdInsert,
+        })),
+      };
 
-      const resp = await fetch(`${API_BASE}/api/feedback/pdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/pdf", ...getAuthHeaders() },
-        body: JSON.stringify({ sessionId: result?.sessionId || inputPayload.sessionId, checklist, items }),
+      const resp = await api.post("/api/feedback/export.pdf", body, {
+        responseType: "blob",
+        validateStatus: () => true,
       });
 
-      if (!resp.ok) {
-        const t = await resp.text().catch(() => "");
-        throw new Error(`PDF 생성 실패: HTTP ${resp.status}\n${t}`);
+      if (resp.status !== 200) {
+        setErr(`PDF 생성 실패 (HTTP ${resp.status})`);
+        return;
       }
 
-      const blob = await resp.blob();
+      const blob = resp.data;
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url; a.download = `feedback-${result?.sessionId || inputPayload.sessionId}.pdf`;
-      document.body.appendChild(a); a.click(); a.remove();
+      a.href = url;
+      a.download = `feedback-${result.sessionId || base.sessionId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       window.URL.revokeObjectURL(url);
     } catch (e) {
       setErr(e?.message || "PDF 다운로드 중 오류가 발생했습니다.");
@@ -191,11 +203,16 @@ export default function InterviewFeedback() {
     <div style={{ maxWidth: 960, margin: "40px auto", fontFamily: "Inter, system-ui, Arial, sans-serif" }}>
       <h2 style={{ textAlign: "center", marginBottom: 8 }}>인터뷰 피드백</h2>
       <p style={{ textAlign: "center", color: "#6b7280", marginTop: 0 }}>
-        세션: <strong>{result?.sessionId ?? inputPayload.sessionId ?? "-"}</strong>
+        세션: <strong>{result?.sessionId ?? base.sessionId ?? "-"}</strong>
+        {result?.apiVersion ? <> · API {result.apiVersion}</> : null}
       </p>
 
       {loading && <div style={{ padding: 24, border: "1px solid #e5e7eb", borderRadius: 12, background: "#fafafa" }}>분석 중입니다…</div>}
-      {err && <div style={{ padding: 16, border: "1px solid #fecaca", background: "#fff1f2", borderRadius: 8, color: "#b91c1c", marginBottom: 16, whiteSpace: "pre-wrap" }}>{err}</div>}
+      {err && (
+        <div style={{ padding: 16, border: "1px solid #fecaca", background: "#fff1f2", borderRadius: 8, color: "#b91c1c", marginBottom: 16, whiteSpace: "pre-wrap" }}>
+          {err}
+        </div>
+      )}
 
       {!loading && result && (
         <>
@@ -204,7 +221,9 @@ export default function InterviewFeedback() {
               <h3 style={{ margin: "0 0 12px 0" }}>체크리스트</h3>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {result.checklist.map((c, i) => (
-                  <span key={i} style={{ fontSize: 14, padding: "6px 10px", background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 999 }}>✅ {c}</span>
+                  <span key={i} style={{ fontSize: 14, padding: "6px 10px", background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 999 }}>
+                    ✅ {c}
+                  </span>
                 ))}
               </div>
             </section>
@@ -219,7 +238,9 @@ export default function InterviewFeedback() {
                     {Array.isArray(it.jdInsert) && it.jdInsert.length > 0 && (
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         {it.jdInsert.map((k, i) => (
-                          <span key={i} style={{ fontSize: 12, background: "#ecfeff", border: "1px solid #a5f3fc", padding: "2px 8px", borderRadius: 999 }}>{k}</span>
+                          <span key={i} style={{ fontSize: 12, background: "#ecfeff", border: "1px solid #a5f3fc", padding: "2px 8px", borderRadius: 999 }}>
+                            {k}
+                          </span>
                         ))}
                       </div>
                     )}
@@ -255,32 +276,20 @@ export default function InterviewFeedback() {
                       </div>
                     </div>
                   )}
-
-                  {Array.isArray(it.tips) && it.tips.length > 0 && (
-                    <div style={{ marginTop: 8 }}>
-                      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 4 }}>추가 팁</div>
-                      <ul style={{ margin: 0, paddingLeft: 18 }}>
-                        {it.tips.map((t, i) => (<li key={i}>{t}</li>))}
-                      </ul>
-                    </div>
-                  )}
                 </div>
               ))}
             </section>
           )}
 
+ 
+
+
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button
-              onClick={() => navigate(-1)}
-              style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", cursor: "pointer" }}
-            >
+            <button onClick={() => navigate(-1)} style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", cursor: "pointer" }}>
               뒤로
             </button>
-            <button
-              onClick={downloadPdf}
-              disabled={downloading}
-              style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #1d4ed8", background: "#1d4ed8", color: "#fff", cursor: "pointer" }}
-            >
+            <button onClick={downloadPdf} disabled={downloading}
+              style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #1d4ed8", background: "#1d4ed8", color: "#fff", cursor: "pointer" }}>
               {downloading ? "PDF 생성 중..." : "PDF로 내보내기"}
             </button>
           </div>

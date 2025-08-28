@@ -1,9 +1,8 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-const API_BASE = "http://localhost:8080";
+const API_BASE = "http://127.0.0.1:8000"; // ← FastAPI
 
-// 토큰 넣을 수 있게 (JWT 방식일 때)
 const getAuthHeaders = () => {
   const token =
     localStorage.getItem("accessToken") ||
@@ -12,152 +11,130 @@ const getAuthHeaders = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-const personaMap = { 친절: 1, 압박: 2, 공포: 3 };
-
 export default function InterviewSetting() {
-  const [interviewType, setInterviewType] = useState("");
-  const [difficulty, setDifficulty] = useState("");
-  const [questionCount, setQuestionCount] = useState(5);
+  const [interviewType, setInterviewType] = useState("인성");
+  const [personality, setPersonality] = useState("ISTJ"); // 백엔드 스펙: personality 문자열
+  const [userId, setUserId] = useState(3); // DB에 존재하는 id 사용(예: 3)
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!interviewType || !difficulty) {
-      alert("면접 유형과 난이도를 선택해주세요!");
+    if (!interviewType || !personality || !userId) {
+      alert("면접유형, 성격, user_id를 확인하세요.");
       return;
     }
 
-    // 기본 내비게이션 페이로드
-    const navBase = {
-      interviewType,
-      difficulty,
-      jdKeywords: [], // 필요하면 여기에서 세팅
-    };
-
     try {
       setLoading(true);
-
-      // 백엔드가 토큰에서 userId를 추출한다면 user_id 생략
-      const body = {
-        persona_id: personaMap[difficulty],
-        total_questions: Number(questionCount) || 5,
-      };
-
       const resp = await fetch(`${API_BASE}/api/simulation/session`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({
+          user_id: Number(userId),
+          interview_type: interviewType,
+          personality,
+        }),
       });
 
-      if (resp.status === 401) {
-        alert("로그인이 필요합니다. 로그인 후 다시 시도해주세요.");
-        navigate("/auth/login?next=/interview/setting");
-        return;
-      }
-
-      // 백엔드가 아직 준비 안 되었거나, 인증 실패 외의 오류면 로컬 모드 폴백
       if (!resp.ok) {
-        console.warn("[InterviewSetting] session create failed:", resp.status);
-        const localSessionId = `sess_local_${Date.now()}`;
-        navigate("/interview/analyze", {
-          state: { ...navBase, sessionId: localSessionId, localOnly: true },
-        });
-        return;
+        const text = await resp.text().catch(() => "");
+        throw new Error(`세션 생성 실패(${resp.status}) ${text}`);
       }
 
       const data = await resp.json();
-      const sessionId = data?.session_id || `sess_${Date.now()}`;
+      // 첫 질문: 응답의 questions[0] 사용
+      const firstQ = data?.questions?.[0];
+      if (!firstQ) {
+        throw new Error("초기 질문을 받지 못했습니다.");
+      }
+
       navigate("/interview/analyze", {
-        state: { ...navBase, sessionId, localOnly: false },
+        state: {
+          sessionId: data.session_id,
+          interviewType,
+          personality,
+          // 진행 화면에서 바로 사용
+          firstQuestion: {
+            question_id: firstQ.question_id,
+            content: firstQ.content,
+          },
+          jdKeywords: [], // 필요시 키워드 전달
+        },
       });
     } catch (err) {
       console.error(err);
-      // 완전 폴백: 로컬 모드로 시뮬 진행
-      const localSessionId = `sess_local_${Date.now()}`;
-      navigate("/interview/analyze", {
-        state: { ...navBase, sessionId: localSessionId, localOnly: true },
-      });
+      alert(err.message || "세션 생성 중 오류");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ textAlign: "center", marginTop: "40px" }}>
+    <div style={{ maxWidth: 720, margin: "40px auto" }}>
       <h2>면접 시뮬레이션 설정</h2>
 
-      <div style={{ margin: "20px 0" }}>
-        <h3>면접 유형</h3>
-        {["기술", "인성", "직무"].map((type) => (
-          <button
-            key={type}
-            onClick={() => setInterviewType(type)}
-            style={{
-              margin: "10px",
-              padding: "15px 25px",
-              border: interviewType === type ? "2px solid blue" : "1px solid #ccc",
-              borderRadius: "10px",
-              backgroundColor: interviewType === type ? "#f0f8ff" : "white",
-              cursor: "pointer",
-            }}
-          >
-            {type}
-          </button>
-        ))}
-      </div>
+      <form onSubmit={handleSubmit}>
+        <div style={{ margin: "16px 0" }}>
+          <label>user_id&nbsp;</label>
+          <input
+            type="number"
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
+            style={{ padding: 8, borderRadius: 6, border: "1px solid #ccc" }}
+          />
+          <div style={{ fontSize: 12, color: "#666" }}>
+            (DB의 User(id) 존재 값: 예) 1,2,3)
+          </div>
+        </div>
 
-      <div style={{ margin: "20px 0" }}>
-        <h3>난이도</h3>
-        {["친절", "압박", "공포"].map((level) => (
-          <button
-            key={level}
-            onClick={() => setDifficulty(level)}
-            style={{
-              margin: "10px",
-              padding: "15px 25px",
-              border: difficulty === level ? "2px solid blue" : "1px solid #ccc",
-              borderRadius: "10px",
-              backgroundColor: difficulty === level ? "#f0f8ff" : "white",
-              cursor: "pointer",
-            }}
-          >
-            {level}
-          </button>
-        ))}
-      </div>
+        <div style={{ margin: "16px 0" }}>
+          <label>면접 유형&nbsp;</label>
+          {["인성", "직무", "가치관"].map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setInterviewType(t)}
+              style={{
+                marginRight: 8,
+                padding: "8px 14px",
+                borderRadius: 8,
+                border: interviewType === t ? "2px solid #2563eb" : "1px solid #ccc",
+                background: interviewType === t ? "#eff6ff" : "#fff",
+                cursor: "pointer",
+              }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
 
-      <div style={{ margin: "20px 0" }}>
-        <h3>질문 개수</h3>
-        <input
-          type="number"
-          min={1}
-          max={10}
-          value={questionCount}
-          onChange={(e) => setQuestionCount(e.target.value)}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #ccc" }}
-        />
-      </div>
+        <div style={{ margin: "16px 0" }}>
+          <label>면접관 성격(personality)&nbsp;</label>
+          <input
+            type="text"
+            value={personality}
+            onChange={(e) => setPersonality(e.target.value)}
+            placeholder="예: ISTJ / 친절 / 압박"
+            style={{ padding: 8, borderRadius: 6, border: "1px solid #ccc", width: 240 }}
+          />
+        </div>
 
-      <button
-        onClick={handleSubmit}
-        disabled={loading}
-        style={{
-          marginTop: "30px",
-          padding: "12px 50px",
-          backgroundColor: "#1d4ed8",
-          color: "white",
-          fontSize: "16px",
-          border: "none",
-          borderRadius: "8px",
-          cursor: "pointer",
-        }}
-      >
-        {loading ? "세션 생성 중..." : "설정"}
-      </button>
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            padding: "10px 24px",
+            borderRadius: 8,
+            background: "#1d4ed8",
+            color: "#fff",
+            border: 0,
+            cursor: "pointer",
+          }}
+        >
+          {loading ? "세션 생성 중..." : "시작"}
+        </button>
+      </form>
     </div>
   );
 }
