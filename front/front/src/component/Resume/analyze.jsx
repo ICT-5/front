@@ -3,8 +3,22 @@ import { useLocation, useNavigate } from "react-router-dom";
 import "../../styles/Resume/resume.base.css";
 import "../../styles/Resume/analyze.css";
 
-// 환경변수 기반 베이스 (프록시 쓰면 빈 문자열 "" 로 둬도 됨)
-const API_BASE ="http://localhost:8080"
+const API_BASE = "http://localhost:8080";
+
+/** 인증 유틸 */
+const getAuthHeaders = () => {
+  const t =
+    localStorage.getItem("accessToken") ||
+    localStorage.getItem("token") ||
+    localStorage.getItem("jwt");
+  return t ? { Authorization: `Bearer ${t}` } : {};
+};
+
+// 세션쿠키(Spring) 방식이면 주석 해제
+const FETCH_OPTS = {
+  // credentials: "include",
+};
+
 export default function ResumeAnalyzing() {
   const { state } = useLocation();
   const navigate = useNavigate();
@@ -33,35 +47,59 @@ export default function ResumeAnalyzing() {
         fd.append("userId", String(state.userId));
         fd.append("resumeFile", state.file);
         fd.append("jobUrl", state.jdUrl);
-        // collection/topK는 전송하지 않음 (백엔드 기본값)
 
         console.log("[ResumeAnalyze] FormData", {
           userId: String(state.userId),
           jobUrl: state.jdUrl,
-          file: { name: state.file?.name, size: state.file?.size, type: state.file?.type },
+          file: {
+            name: state.file?.name,
+            size: state.file?.size,
+            type: state.file?.type,
+          },
         });
 
         const resp = await fetch(`${API_BASE}/api/flow/analyze`, {
           method: "POST",
           body: fd,
-          headers: { Accept: "application/json" }, // Content-Type 직접 지정 금지
-          credentials: "include", // 세션 없으면 제거 가능
+          headers: {
+            Accept: "application/json",
+            ...getAuthHeaders(),
+          },
           signal: controller.signal,
+          ...FETCH_OPTS,
         });
 
-        console.log("[ResumeAnalyze] status:", resp.status, resp.statusText, resp.headers.get("content-type"));
+        console.log(
+          "[ResumeAnalyze] status:",
+          resp.status,
+          resp.statusText,
+          resp.headers.get("content-type")
+        );
+
+        if (resp.status === 401) {
+          // 인증 필요: 로그인으로 보냄
+          const next = encodeURIComponent("/resume/upload");
+          navigate(`/auth/login?next=${next}`, { replace: true });
+          return;
+        }
 
         if (!resp.ok) {
           const text = await resp.text().catch(() => "");
           console.error("[ResumeAnalyze] error body:", text);
-          throw new Error(`HTTP ${resp.status} ${resp.statusText}\n${text || "서버 오류"}`);
+          throw new Error(
+            `HTTP ${resp.status} ${resp.statusText}\n${text || "서버 오류"}`
+          );
         }
 
         const data = await (async () => {
           const ct = resp.headers.get("content-type") || "";
           if (ct.includes("application/json")) return resp.json();
           const t = await resp.text();
-          try { return JSON.parse(t); } catch { throw new Error("서버 응답이 JSON이 아닙니다.\n" + t); }
+          try {
+            return JSON.parse(t);
+          } catch {
+            throw new Error("서버 응답이 JSON이 아닙니다.\n" + t);
+          }
         })();
 
         console.log("[ResumeAnalyze] payload:", data);
@@ -102,11 +140,20 @@ export default function ResumeAnalyzing() {
             <div className="progress">
               <div className="progress-bar" style={{ width: "70%" }} />
             </div>
-            <p className="muted" style={{ marginTop: 8 }}>{msg}</p>
+            <p className="muted" style={{ marginTop: 8 }}>
+              {msg}
+            </p>
 
             <ul className="steps">
-              <li className="active"><span className="dot" /><span>업로드 & 분석 요청</span><span className="tag-running">진행 중</span></li>
-              <li><span className="dot" /><span>결과 수신</span></li>
+              <li className="active">
+                <span className="dot" />
+                <span>업로드 & 분석 요청</span>
+                <span className="tag-running">진행 중</span>
+              </li>
+              <li>
+                <span className="dot" />
+                <span>결과 수신</span>
+              </li>
             </ul>
 
             <div className="skeleton-card">
@@ -116,16 +163,22 @@ export default function ResumeAnalyzing() {
             </div>
 
             <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-              <button className="btn-secondary" onClick={handleCancel}>취소</button>
+              <button className="btn-secondary" onClick={handleCancel}>
+                취소
+              </button>
             </div>
           </>
         )}
 
         {phase === "error" && (
           <>
-            <p className="help-error" style={{ whiteSpace: "pre-wrap" }}>{error}</p>
+            <p className="help-error" style={{ whiteSpace: "pre-wrap" }}>
+              {error}
+            </p>
             <div style={{ marginTop: 12 }}>
-              <button className="btn-primary" onClick={handleRetry}>이전으로</button>
+              <button className="btn-primary" onClick={handleRetry}>
+                이전으로
+              </button>
             </div>
           </>
         )}
@@ -134,7 +187,9 @@ export default function ResumeAnalyzing() {
           <>
             <p className="muted">{msg}</p>
             <div style={{ marginTop: 12 }}>
-              <button className="btn-primary" onClick={handleRetry}>이전으로</button>
+              <button className="btn-primary" onClick={handleRetry}>
+                이전으로
+              </button>
             </div>
           </>
         )}

@@ -1,24 +1,23 @@
-// src/component/Interview/InterviewSetting.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-const API_BASE = "http://localhost:8080"; // 백엔드 주소 맞게 설정
+const API_BASE = "http://localhost:8080";
 
-const personaMap = {
-  "친절": 1,
-  "압박": 2,
-  "공포": 3,
+// 토큰 넣을 수 있게 (JWT 방식일 때)
+const getAuthHeaders = () => {
+  const token =
+    localStorage.getItem("accessToken") ||
+    localStorage.getItem("token") ||
+    localStorage.getItem("jwt");
+  return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-const typeMap = {
-  "기술": "tech",
-  "인성": "personality",
-  "직무": "job",
-};
+const personaMap = { 친절: 1, 압박: 2, 공포: 3 };
 
 export default function InterviewSetting() {
   const [interviewType, setInterviewType] = useState("");
   const [difficulty, setDifficulty] = useState("");
+  const [questionCount, setQuestionCount] = useState(5);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -29,31 +28,59 @@ export default function InterviewSetting() {
       return;
     }
 
+    // 기본 내비게이션 페이로드
+    const navBase = {
+      interviewType,
+      difficulty,
+      jdKeywords: [], // 필요하면 여기에서 세팅
+    };
+
     try {
       setLoading(true);
+
+      // 백엔드가 토큰에서 userId를 추출한다면 user_id 생략
       const body = {
-        user_id: 1, // TODO: 실제 로그인한 유저 ID로 교체
         persona_id: personaMap[difficulty],
-        total_questions: 5,
+        total_questions: Number(questionCount) || 5,
       };
 
       const resp = await fetch(`${API_BASE}/api/simulation/session`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
         body: JSON.stringify(body),
       });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
 
+      if (resp.status === 401) {
+        alert("로그인이 필요합니다. 로그인 후 다시 시도해주세요.");
+        navigate("/auth/login?next=/interview/setting");
+        return;
+      }
+
+      // 백엔드가 아직 준비 안 되었거나, 인증 실패 외의 오류면 로컬 모드 폴백
+      if (!resp.ok) {
+        console.warn("[InterviewSetting] session create failed:", resp.status);
+        const localSessionId = `sess_local_${Date.now()}`;
+        navigate("/interview/analyze", {
+          state: { ...navBase, sessionId: localSessionId, localOnly: true },
+        });
+        return;
+      }
+
+      const data = await resp.json();
+      const sessionId = data?.session_id || `sess_${Date.now()}`;
       navigate("/interview/analyze", {
-        state: {
-          sessionId: data.session_id,
-          interviewType,
-          difficulty,
-        },
+        state: { ...navBase, sessionId, localOnly: false },
       });
     } catch (err) {
-      alert("세션 생성 실패: " + err.message);
+      console.error(err);
+      // 완전 폴백: 로컬 모드로 시뮬 진행
+      const localSessionId = `sess_local_${Date.now()}`;
+      navigate("/interview/analyze", {
+        state: { ...navBase, sessionId: localSessionId, localOnly: true },
+      });
     } finally {
       setLoading(false);
     }
@@ -62,6 +89,7 @@ export default function InterviewSetting() {
   return (
     <div style={{ textAlign: "center", marginTop: "40px" }}>
       <h2>면접 시뮬레이션 설정</h2>
+
       <div style={{ margin: "20px 0" }}>
         <h3>면접 유형</h3>
         {["기술", "인성", "직무"].map((type) => (
@@ -100,6 +128,18 @@ export default function InterviewSetting() {
             {level}
           </button>
         ))}
+      </div>
+
+      <div style={{ margin: "20px 0" }}>
+        <h3>질문 개수</h3>
+        <input
+          type="number"
+          min={1}
+          max={10}
+          value={questionCount}
+          onChange={(e) => setQuestionCount(e.target.value)}
+          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #ccc" }}
+        />
       </div>
 
       <button

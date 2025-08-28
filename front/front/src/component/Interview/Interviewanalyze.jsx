@@ -1,82 +1,182 @@
-// src/component/Interview/InterviewAnalyze.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import useInterviewTranscript from "../../hooks/useInterviewTranscript";
 import "../../styles/Interview/Interviewanalyze.css";
 
 const API_BASE = "http://localhost:8080";
 
+const getAuthHeaders = () => {
+  const token =
+    localStorage.getItem("accessToken") ||
+    localStorage.getItem("token") ||
+    localStorage.getItem("jwt");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
 export default function InterviewAnalyze() {
   const { state } = useLocation();
   const navigate = useNavigate();
-  const { sessionId, interviewType, difficulty } = state || {};
 
-  const [messages, setMessages] = useState([]);
+  const meta = useMemo(
+    () => ({
+      interviewType: state?.interviewType || "기술",
+      difficulty: state?.difficulty || "친절",
+      sessionId: state?.sessionId || `sess_local_${Date.now()}`,
+      localOnly: !!state?.localOnly, // 백엔 실패 시 로컬 폴백
+      jdKeywords: state?.jdKeywords || [],
+    }),
+    [state]
+  );
+
+  // Q/A 누적 (DB 없이도 피드백 단계로 넘기기 위한 저장)
+  const { appendQuestion, appendAnswer, toFeedbackPayload } =
+    useInterviewTranscript(meta.sessionId);
+
+  const [messages, setMessages] = useState([]); // { role, text, sim_question_id? }
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
-  // 세션 시작 후 첫 질문 가져오기
+  // 1) 첫 질문 로드
   useEffect(() => {
-    if (!sessionId) {
-      setError("세션 ID가 없습니다. 처음 화면에서 다시 시도하세요.");
-      setLoading(false);
-      return;
-    }
+    let alive = true;
 
-    async function fetchFirstQuestion() {
+    async function loadFirst() {
       try {
-        const resp = await fetch(`${API_BASE}/api/simulation/${sessionId}/question/next`);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const q = await resp.json();
+        setLoading(true);
+        setError("");
 
-        setMessages([
-          { role: "interviewer", text: q.content, sim_question_id: q.sim_question_id },
-        ]);
+        if (meta.localOnly) {
+          // 로컬 모드: 목업 첫 질문
+          if (!alive) return;
+          const firstQ = { role: "interviewer", text: "자기소개를 간단히 해주세요.", sim_question_id: "simq_local_1", qid: "q1" };
+          setMessages([firstQ]);
+          appendQuestion("q1", firstQ.text);
+          return;
+        }
+
+        // 백엔드 모드: 다음 질문 요청
+        const resp = await fetch(
+          `${API_BASE}/api/simulation/${meta.sessionId}/question/next`,
+          { headers: { ...getAuthHeaders() } }
+        );
+
+        if (resp.status === 401) {
+          setError("로그인이 필요합니다. 다시 로그인해 주세요.");
+          return;
+        }
+
+        if (!resp.ok) {
+          // GET이 자동 트리거되어 아직 생성 전인 경우 등 → 목업 폴백
+          console.warn("[Analyze] question/next failed:", resp.status);
+          const firstQ = { role: "interviewer", text: "자기소개를 간단히 해주세요.", sim_question_id: "simq_local_1", qid: "q1" };
+          setMessages([firstQ]);
+          appendQuestion("q1", firstQ.text);
+          return;
+        }
+
+        const q = await resp.json();
+        if (!alive) return;
+
+        setMessages([{ role: "interviewer", text: q.content, sim_question_id: q.sim_question_id }]);
+        // qid가 응답에 없다면 sim_question_id를 qid로 사용
+        appendQuestion(String(q.sim_question_id || "q1"), q.content);
       } catch (err) {
-        setError("초기 질문 불러오기 실패: " + err.message);
+        console.error(err);
+        // 폴백
+        const firstQ = { role: "interviewer", text: "자기소개를 간단히 해주세요.", sim_question_id: "simq_local_1", qid: "q1" };
+        setMessages([firstQ]);
+        appendQuestion("q1", firstQ.text);
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
     }
-    fetchFirstQuestion();
-  }, [sessionId]);
 
-  // 답변 제출 + 다음 질문 요청
+    loadFirst();
+    return () => {
+      alive = false;
+    };
+  }, [appendQuestion, meta.localOnly, meta.sessionId]);
+
+  // 2) 답변 제출 → 다음 질문 (백엔 or 로컬)
   const send = async (e) => {
     e.preventDefault();
-    if (!input.trim() || !messages.length) return;
+    const value = input.trim();
+    if (!value || !messages.length) return;
 
-    const lastQ = messages[messages.length - 1];
-    setMessages((prev) => [...prev, { role: "candidate", text: input }]);
+    const lastMsg = messages[messages.length - 1];
+    setMessages((prev) => [...prev, { role: "candidate", text: value }]);
     setSending(true);
     setInput("");
 
     try {
-      await fetch(`${API_BASE}/api/simulation/${sessionId}/answer`, {
+      // 답변 저장(프론트 Q/A 스토리지)
+      appendAnswer(String(lastMsg.sim_question_id || "q_latest"), value);
+
+      if (meta.localOnly) {
+        // 로컬 모드: 목업 다음 질문 1~2개 후 종료
+        const askedCount = messages.filter((m) => m.role === "interviewer").length;
+        if (askedCount >= 2) {
+          // 세션 종료 → 피드백 단계
+          const payload = toFeedbackPayload({ jdKeywords: meta.jdKeywords });
+          navigate("/interview/feedback", { state: { payload } });
+          return;
+        }
+        const nextQ = {
+          role: "interviewer",
+          text: askedCount === 1 ? "최근 프로젝트 성과를 수치로 말해 주세요." : "팀에서 맡았던 가장 어려운 과제는?",
+          sim_question_id: `simq_local_${askedCount + 1}`,
+          qid: `q${askedCount + 1}`,
+        };
+        setMessages((prev) => [...prev, nextQ]);
+        appendQuestion(nextQ.qid, nextQ.text);
+        return;
+      }
+
+      // 백엔드 모드: 답변 제출
+      await fetch(`${API_BASE}/api/simulation/${meta.sessionId}/answer`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({
-          sim_question_id: lastQ.sim_question_id,
-          content: input,
+          sim_question_id: lastMsg.sim_question_id,
+          content: value,
         }),
       });
 
-      // 다음 질문 가져오기
-      const resp = await fetch(`${API_BASE}/api/simulation/${sessionId}/question/next`);
-      if (resp.ok) {
-        const q = await resp.json();
-        setMessages((prev) => [...prev, { role: "interviewer", text: q.content, sim_question_id: q.sim_question_id }]);
-      } else if (resp.status === 404) {
-        // 질문 끝난 경우 → 세션 종료
-        await fetch(`${API_BASE}/api/simulation/${sessionId}/end`, {
+      // 다음 질문 요청 (트리거가 자동이어도, 화면 갱신을 위해 시도)
+      const resp = await fetch(
+        `${API_BASE}/api/simulation/${meta.sessionId}/question/next`,
+        { headers: { ...getAuthHeaders() } }
+      );
+
+      if (resp.status === 404 || resp.status === 204) {
+        // 질문 소진: 세션 종료 후 피드백
+        await fetch(`${API_BASE}/api/simulation/${meta.sessionId}/end`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
           body: JSON.stringify({ end_reason: "limit_reached" }),
-        });
-        navigate("/interview/feedback", { state: { interviewType, difficulty } });
+        }).catch(() => {});
+        const payload = toFeedbackPayload({ jdKeywords: meta.jdKeywords });
+        navigate("/interview/feedback", { state: { payload } });
+        return;
       }
+
+      if (!resp.ok) {
+        // 실패 → 그냥 종료 처리(폴백)
+        const payload = toFeedbackPayload({ jdKeywords: meta.jdKeywords });
+        navigate("/interview/feedback", { state: { payload } });
+        return;
+      }
+
+      const q = await resp.json();
+      setMessages((prev) => [
+        ...prev,
+        { role: "interviewer", text: q.content, sim_question_id: q.sim_question_id },
+      ]);
+      appendQuestion(String(q.sim_question_id || `q_${Date.now()}`), q.content);
     } catch (err) {
+      console.error(err);
       setError("전송 실패: " + err.message);
     } finally {
       setSending(false);
@@ -87,7 +187,7 @@ export default function InterviewAnalyze() {
     <div className="ifb-wrap">
       <h1 className="ifb-title">면접 시뮬레이션</h1>
       <p className="ifb-meta">
-        유형: <strong>{interviewType}</strong> · 난이도: <strong>{difficulty}</strong>
+        유형: <strong>{meta.interviewType}</strong> · 난이도: <strong>{meta.difficulty}</strong>
       </p>
 
       <div className="ifb-chat">

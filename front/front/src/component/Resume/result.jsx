@@ -23,12 +23,10 @@ export default function ResumeResult() {
   const data = state?.result;
 
   if (!data) {
-    // 분석 결과가 없으면 업로드로 돌려보내기
     navigate("/resume/upload", { replace: true });
     return null;
   }
 
-  // API 명세 스펙 필드 사용
   const {
     ok,
     userId,
@@ -44,37 +42,61 @@ export default function ResumeResult() {
     <div className="resume-wrap">
       <h1 className="resume-title">이력서 분석 결과</h1>
 
-      {/* 요약 2열 */}
       <div className="two-col">
         <Box title="이력서 미리보기">
-          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{resumePreview}</div>
+          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+            {resumePreview}
+          </div>
         </Box>
         <Box title="채용공고 미리보기">
-          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{postingPreview}</div>
+          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+            {postingPreview}
+          </div>
         </Box>
       </div>
 
-      {/* 분석(마크다운 가능) */}
       <Box title="분석 (마크다운 가능)">
         <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{analysis}</div>
       </Box>
 
-      {/* 메타 정보 */}
       <div className="two-col">
-        <Field label="ok"><code>{String(ok)}</code></Field>
-        <Field label="userId"><code>{userId}</code></Field>
-        <Field label="collection"><code>{collection}</code></Field>
-        <Field label="topK"><code>{topK}</code></Field>
+        <Field label="ok">
+          <code>{String(ok)}</code>
+        </Field>
+        <Field label="userId">
+          <code>{userId}</code>
+        </Field>
+        <Field label="collection">
+          <code>{collection}</code>
+        </Field>
+        <Field label="topK">
+          <code>{topK}</code>
+        </Field>
       </div>
 
-      {/* RAG 결과 */}
       <Box title="retrieved (RAG 검색 결과)">
         {Array.isArray(retrieved) && retrieved.length > 0 ? (
-          <details open style={{ background: "#f8fafc", padding: 12, borderRadius: 10, border: "1px solid #eef2f7" }}>
+          <details
+            open
+            style={{
+              background: "#f8fafc",
+              padding: 12,
+              borderRadius: 10,
+              border: "1px solid #eef2f7",
+            }}
+          >
             <summary style={{ cursor: "pointer", marginBottom: 8 }}>
               총 {retrieved.length}개 – JSON 보기
             </summary>
-            <pre style={{ margin: 0, whiteSpace: "pre-wrap", overflowX: "auto", fontSize: 13, lineHeight: 1.5 }}>
+            <pre
+              style={{
+                margin: 0,
+                whiteSpace: "pre-wrap",
+                overflowX: "auto",
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
               {JSON.stringify(retrieved, null, 2)}
             </pre>
           </details>
@@ -83,10 +105,13 @@ export default function ResumeResult() {
         )}
       </Box>
 
-      {/* 액션 버튼 */}
       <div style={{ marginTop: 24, display: "flex", gap: 8 }}>
-        <button className="btn-primary" onClick={() => navigate("/resume/upload")}>다시 업로드</button>
-        <button className="btn-secondary" onClick={() => navigate(-1)}>이전</button>
+        <button className="btn-primary" onClick={() => navigate("/resume/upload")}>
+          다시 업로드
+        </button>
+        <button className="btn-secondary" onClick={() => navigate(-1)}>
+          이전
+        </button>
       </div>
     </div>
   );
